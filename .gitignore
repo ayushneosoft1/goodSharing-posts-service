@@ -1,0 +1,65 @@
+# =========================
+# Node / JavaScript
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Certificates (DB, SSL)
+# =========================
+certs/
+*.pem
+*.crt
+*.key
+
+# =========================
+# OS / Editor junk
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =========================
+# Build / Cache
+# =========================
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# Apollo / GraphQL
+# =========================
+.rover/
+.apollo/
+supergraph.graphql
+
+# =========================
+# Docker
+# =========================
+*.pid
+docker-compose.override.yml
+
+# =========================
+# Optional (if you add later)
+# =========================
+*.local
+*.swp
