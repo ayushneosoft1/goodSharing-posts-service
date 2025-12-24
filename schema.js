@@ -2,10 +2,12 @@ import gql from "graphql-tag";
 
 export const typeDefs = gql`
   type Query {
+    # Query API 1
     getPostDetails(postId: ID!): Post
   }
 
   type Mutation {
+    # Mutation API 1
     createPost(
       title: String!
       category: PostCategory!
