@@ -1,11 +1,16 @@
 import gql from "graphql-tag";
 
 export const typeDefs = gql`
-  enum PostCategory {
-    BOOK
-    CLOTH
-    ELECTRONIC
-    TOYS
+  type Query {
+    getPostDetails(postId: ID!): Post
+  }
+
+  type Mutation {
+    createPost(
+      title: String!
+      category: PostCategory!
+      description: String!
+    ): Post
   }
 
   type Post @key(fields: "id") {
@@ -23,15 +28,10 @@ export const typeDefs = gql`
     id: ID! @external
   }
 
-  type Query {
-    getPostDetails(postId: ID!): Post
-  }
-
-  type Mutation {
-    createPost(
-      title: String!
-      category: PostCategory!
-      description: String!
-    ): Post
+  enum PostCategory {
+    BOOK
+    CLOTH
+    ELECTRONIC
+    TOYS
   }
 `;
