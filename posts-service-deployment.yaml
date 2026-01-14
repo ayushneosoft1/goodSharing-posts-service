@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posts-service
+  namespace: services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: posts-service
+  template:
+    metadata:
+      labels:
+        app: posts-service
+    spec:
+      containers:
+        - name: posts-service
+          image: ayushneosoft/goodsharing-posts-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4002
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: posts-db-secret
+                  key: DB_URL
+          volumeMounts:
+            - name: db-ca-cert
+              mountPath: /app/certs
+              readOnly: true
+      volumes:
+        - name: db-ca-cert
+          secret:
+            secretName: posts-db-ca
