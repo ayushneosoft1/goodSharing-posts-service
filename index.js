@@ -10,7 +10,7 @@ const server = new ApolloServer({
 });
 
 startStandaloneServer(server, {
-  listen: { port: 4002, host: "0.0.0.0" },
+  listen: { port: 4002, host: "127.0.0.1" },
   context: async ({ req }) => {
     const xUser = req.headers["x-user"];
 
@@ -19,6 +19,5 @@ startStandaloneServer(server, {
     };
   },
 }).then(() => {
-  console.log("posts-service running on 0.0.0.0:4002");
+  console.log("posts-service running on 127.0.0.1:4002");
 });
-
