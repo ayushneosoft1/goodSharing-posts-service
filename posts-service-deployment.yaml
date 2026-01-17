@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: posts-service
-          image: ayushneosoft/goodsharing-posts-service:latest
+          image: ayushneosoft/goodsharing-posts-service:v1.0.0
           imagePullPolicy: Always
           ports:
             - containerPort: 4002
