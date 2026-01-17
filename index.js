@@ -12,6 +12,7 @@ const server = new ApolloServer({
 startStandaloneServer(server, {
   listen: { port: 4002, host: "0.0.0.0" },
   context: async ({ req }) => {
+    console.log("HEADERS: ===============>", req.headers);
     const xUser = req.headers["x-user"];
 
     return {

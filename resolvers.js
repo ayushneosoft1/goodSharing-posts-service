@@ -37,6 +37,7 @@ export const resolvers = {
 
   Mutation: {
     async createPost(_, { title, category, description }, context) {
+      console.log("tempo ====> USER CONTEXT: ====>", context.user);
       // user comes from gateway auth
       if (!context.user) {
         throw new Error("Unauthorized");
