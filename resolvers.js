@@ -1,7 +1,7 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
 
-const CACHE_TTL = 600; // 10 minutes
+const CACHE_TTL = 604800; // 7 days
 
 export const resolvers = {
   Query: {
