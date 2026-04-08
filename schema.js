@@ -2,16 +2,20 @@ import gql from "graphql-tag";
 
 export const typeDefs = gql`
   type Query {
-    # Query API 1
+    # Existing
     getPostDetails(postId: ID!): Post
+
+    #  New Query
+    posts: [Post!]!
   }
 
   type Mutation {
-    # Mutation API 1
     createPost(
       title: String!
       category: PostCategory!
       description: String!
+      imageUrl: String
+      location: String
     ): Post
   }
 
@@ -20,10 +24,12 @@ export const typeDefs = gql`
     title: String!
     category: PostCategory!
     description: String!
+    imageUrl: String # camelCase to match resolver: imageUrl: post.image_url
+    location: String
     isDeleted: Boolean!
     createdAt: String!
     updatedAt: String!
-    user: User!
+    owner: User # references user_id in DB
   }
 
   extend type User @key(fields: "id") {
