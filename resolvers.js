@@ -34,7 +34,7 @@ export const resolvers = {
            created_at,
            updated_at,
            user_id
-         FROM  public. posts
+         FROM public.posts
          WHERE id = $1 AND is_deleted = false`,
         [postId],
       );
