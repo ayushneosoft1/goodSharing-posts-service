@@ -30,6 +30,8 @@ export const resolvers = {
            title,
            category,
            description,
+           image_url,
+           location,
            is_deleted,
            created_at,
            updated_at,
@@ -48,6 +50,8 @@ export const resolvers = {
         title: post.title,
         category: post.category,
         description: post.description,
+        imageUrl: post.image_url,
+        location: post.location,
         isDeleted: post.is_deleted,
         createdAt: post.created_at,
         updatedAt: post.updated_at,
@@ -147,66 +151,76 @@ export const resolvers = {
 
   Mutation: {
     //  Create Post
-    async createPost(_, { title, category, description }, context) {
+
+    async createPost(
+      _,
+      { title, category, description, imageUrl, location },
+      context,
+    ) {
+      // 1. Auth check
       if (!context.user) {
-        throw new Error("Unauthorized : Token missing or invalid");
+        throw new Error("Unauthorized: Token missing or invalid");
       }
 
       console.log("createPost called");
       console.log("User ID:", context.user.id);
 
-      // 1. Insert into DB
-      const { rows } = await pool.query(
-        `INSERT INTO public.posts (title, category, description, user_id)
-         VALUES ($1, $2, $3, $4)
-         RETURNING *`,
-        [title, category, description, context.user.id],
-      );
-
-      const post = rows[0];
-
-      const postData = {
-        id: post.id,
-        title: post.title,
-        category: post.category,
-        description: post.description,
-        isDeleted: post.is_deleted,
-        createdAt: post.created_at,
-        updatedAt: post.updated_at,
-        user_id: post.user_id,
-      };
-
-      const cacheKey = `post:${post.id}`;
-
-      // 2. Cache single post
       try {
-        await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
-        console.log(" Post cached:", cacheKey);
+        // 2. Insert into DB
+        const { rows } = await pool.query(
+          `INSERT INTO public.posts 
+       (title, category, description, image_url, location, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+          [
+            title,
+            category,
+            description,
+            imageUrl || null, // safety
+            location || null, // safety
+            context.user.id,
+          ],
+        );
+
+        const post = rows[0];
+
+        // 3. Format response
+        const postData = {
+          id: post.id,
+          title: post.title,
+          category: post.category,
+          description: post.description,
+          imageUrl: post.image_url,
+          location: post.location,
+          isDeleted: post.is_deleted,
+          createdAt: post.created_at,
+          updatedAt: post.updated_at,
+          user_id: post.user_id,
+        };
+
+        const cacheKey = `post:${post.id}`;
+
+        // 4. Cache single post
+        try {
+          await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
+          console.log(" Post cached:", cacheKey);
+        } catch (err) {
+          console.error("Redis set error:", err);
+        }
+
+        // 5. Invalidate posts list cache
+        try {
+          await redis.del("posts:all");
+          console.log("🧹 Cleared posts:all cache");
+        } catch (err) {
+          console.error("Redis delete error:", err);
+        }
+
+        return postData;
       } catch (err) {
-        console.error("Redis set error:", err);
+        console.error("CreatePost DB Error:", err);
+        throw new Error("Failed to create post");
       }
-
-      //  3. Invalidate posts list cache
-      try {
-        await redis.del("posts:all");
-        console.log("🧹 Cleared posts:all cache");
-      } catch (err) {
-        console.error("Redis delete error:", err);
-      }
-
-      return postData;
-    },
-  },
-
-  //  IMPORTANT: match GraphQL schema (owner, not user)
-  Post: {
-    owner(post) {
-      return { __typename: "User", id: String(post.user_id) };
     },
   },
 };
-
-// Redis connection log
-redis.on("connect", () => {
-  console.log(" Redis connected (post service)");
-});
