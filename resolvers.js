@@ -5,7 +5,7 @@ const CACHE_TTL = 604800; // 7 days
 
 export const resolvers = {
   Query: {
-    //  1. Get Single Post
+    // ✅ 1. Get Single Post
     async getPostDetails(_, { postId }, context) {
       if (!context.user) {
         throw new Error("Unauthorized");
@@ -13,30 +13,18 @@ export const resolvers = {
 
       const cacheKey = `post:${postId}`;
 
-      // 1. Check Redis
-      const redisData = await redis.get(cacheKey);
-
-      if (redisData) {
-        console.log(" Cache HIT:", cacheKey);
-        return JSON.parse(redisData);
+      // 🔹 Check Redis
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log("✅ Cache HIT:", cacheKey);
+        return JSON.parse(cached);
       }
 
-      console.log(" Cache MISS:", cacheKey);
+      console.log("❌ Cache MISS:", cacheKey);
 
-      // 2. Fetch from DB
+      // 🔹 Fetch from DB
       const { rows } = await pool.query(
-        `SELECT
-           id,
-           title,
-           category,
-           description,
-           image_url,
-           location,
-           is_deleted,
-           created_at,
-           updated_at,
-           user_id
-         FROM public.posts
+        `SELECT * FROM public.posts 
          WHERE id = $1 AND is_deleted = false`,
         [postId],
       );
@@ -55,13 +43,13 @@ export const resolvers = {
         isDeleted: post.is_deleted,
         createdAt: post.created_at,
         updatedAt: post.updated_at,
-        user_id: post.user_id,
+        user_id: post.user_id, // 🔥 IMPORTANT
       };
 
-      // 3. Store in Redis
+      // 🔹 Store in Redis
       try {
         await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
-        console.log(" Stored in Redis:", cacheKey);
+        console.log("📦 Stored in Redis:", cacheKey);
       } catch (err) {
         console.error("Redis set error:", err);
       }
@@ -69,7 +57,7 @@ export const resolvers = {
       return postData;
     },
 
-    //  2. Get All Posts (NEW)
+    // ✅ 2. Get All Posts
     async posts(_, __, context) {
       if (!context.user) {
         throw new Error("Unauthorized");
@@ -77,34 +65,22 @@ export const resolvers = {
 
       const cacheKey = "posts:all";
 
-      // 1. Check Redis
+      // 🔹 Check Redis
       const cached = await redis.get(cacheKey);
       if (cached) {
-        console.log(" POSTS Cache HIT");
+        console.log("✅ POSTS Cache HIT");
         return JSON.parse(cached);
       }
 
-      console.log(" POSTS Cache MISS");
+      console.log("❌ POSTS Cache MISS");
 
-      // 2. Fetch from DB
+      // 🔹 Fetch from DB
       const { rows } = await pool.query(`
-        SELECT
-          id,
-          title,
-          category,
-          description,
-          image_url,
-          location,
-          is_deleted,
-          created_at,
-          updated_at,
-          user_id
-        FROM posts
+        SELECT * FROM posts
         WHERE is_deleted = false
         ORDER BY created_at DESC
       `);
 
-      // 3. Map response
       const posts = rows.map((post) => ({
         id: post.id,
         title: post.title,
@@ -118,10 +94,10 @@ export const resolvers = {
         user_id: post.user_id,
       }));
 
-      // 4. Store in Redis
+      // 🔹 Store in Redis
       try {
         await redis.set(cacheKey, JSON.stringify(posts), "EX", CACHE_TTL);
-        console.log(" Cached posts list");
+        console.log("📦 Cached posts list");
       } catch (err) {
         console.error("Redis error:", err);
       }
@@ -129,17 +105,16 @@ export const resolvers = {
       return posts;
     },
 
-    //  5. Debug Cache
+    // ✅ 3. Debug Cache
     async testPostCache(_, { postId }, context) {
       if (!context.user) {
         throw new Error("Unauthorized");
       }
+
       const cacheKey = `post:${postId}`;
 
       const ttl = await redis.ttl(cacheKey);
       const data = await redis.get(cacheKey);
-
-      console.log("TestPostCache:", { cacheKey, ttl, data });
 
       return {
         cacheKey,
@@ -150,41 +125,34 @@ export const resolvers = {
   },
 
   Mutation: {
-    //  Create Post
-
+    // ✅ 4. Create Post
     async createPost(
       _,
       { title, category, description, imageUrl, location },
       context,
     ) {
-      // 1. Auth check
       if (!context.user) {
-        throw new Error("Unauthorized: Token missing or invalid");
+        throw new Error("Unauthorized");
       }
 
-      console.log("createPost called");
-      console.log("User ID:", context.user.id);
-
       try {
-        // 2. Insert into DB
         const { rows } = await pool.query(
           `INSERT INTO public.posts 
-       (title, category, description, image_url, location, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
+           (title, category, description, image_url, location, user_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
           [
             title,
             category,
             description,
-            imageUrl || null, // safety
-            location || null, // safety
+            imageUrl || null,
+            location || null,
             context.user.id,
           ],
         );
 
         const post = rows[0];
 
-        // 3. Format response
         const postData = {
           id: post.id,
           title: post.title,
@@ -200,27 +168,26 @@ export const resolvers = {
 
         const cacheKey = `post:${post.id}`;
 
-        // 4. Cache single post
-        try {
-          await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
-          console.log(" Post cached:", cacheKey);
-        } catch (err) {
-          console.error("Redis set error:", err);
-        }
+        // 🔹 Cache single post
+        await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
 
-        // 5. Invalidate posts list cache
-        try {
-          await redis.del("posts:all");
-          console.log("🧹 Cleared posts:all cache");
-        } catch (err) {
-          console.error("Redis delete error:", err);
-        }
+        // 🔹 Invalidate list cache
+        await redis.del("posts:all");
+
+        console.log("✅ Post created + cache updated");
 
         return postData;
       } catch (err) {
-        console.error("CreatePost DB Error:", err);
+        console.error("CreatePost Error:", err);
         throw new Error("Failed to create post");
       }
+    },
+  },
+
+  // ✅🔥 MOST IMPORTANT FIX (OWNER RESOLVER)
+  Post: {
+    owner(parent) {
+      return parent.user_id ? { __typename: "User", id: parent.user_id } : null;
     },
   },
 };
