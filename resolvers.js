@@ -1,193 +1,278 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
+import GraphQLJSON from "graphql-type-json";
+import { notificationService } from "./services/notificationService.js";
+import { subscriptionService } from "./services/subscriptionService.js";
 
-const CACHE_TTL = 604800; // 7 days
+const CACHE_TTL = 604800;
 
 export const resolvers = {
+  JSON: GraphQLJSON,
+
   Query: {
-    // ✅ 1. Get Single Post
     async getPostDetails(_, { postId }, context) {
-      if (!context.user) {
-        throw new Error("Unauthorized");
-      }
+      if (!context?.user) throw new Error("Unauthorized");
 
       const cacheKey = `post:${postId}`;
 
-      // 🔹 Check Redis
       const cached = await redis.get(cacheKey);
-      if (cached) {
-        console.log("✅ Cache HIT:", cacheKey);
-        return JSON.parse(cached);
-      }
+      if (cached) return JSON.parse(cached);
 
-      console.log("❌ Cache MISS:", cacheKey);
-
-      // 🔹 Fetch from DB
       const { rows } = await pool.query(
-        `SELECT * FROM public.posts 
-         WHERE id = $1 AND is_deleted = false`,
+        `
+        SELECT *
+        FROM posts
+        WHERE id=$1 AND is_deleted=false
+        `,
         [postId],
       );
 
-      if (!rows[0]) return null;
+      if (!rows.length) return null;
 
-      const post = rows[0];
+      const post = mapPost(rows[0]);
 
-      const postData = {
-        id: post.id,
-        title: post.title,
-        category: post.category,
-        description: post.description,
-        imageUrl: post.image_url,
-        location: post.location,
-        isDeleted: post.is_deleted,
-        createdAt: post.created_at,
-        updatedAt: post.updated_at,
-        user_id: post.user_id, // 🔥 IMPORTANT
-      };
+      await redis.set(cacheKey, JSON.stringify(post), "EX", CACHE_TTL);
 
-      // 🔹 Store in Redis
-      try {
-        await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
-        console.log("📦 Stored in Redis:", cacheKey);
-      } catch (err) {
-        console.error("Redis set error:", err);
-      }
-
-      return postData;
+      return post;
     },
 
-    // ✅ 2. Get All Posts
     async posts(_, __, context) {
-      if (!context.user) {
-        throw new Error("Unauthorized");
-      }
+      if (!context?.user) throw new Error("Unauthorized");
 
-      const cacheKey = "posts:all";
+      const cacheKey = "posts:all:v1";
 
-      // 🔹 Check Redis
       const cached = await redis.get(cacheKey);
-      if (cached) {
-        console.log("✅ POSTS Cache HIT");
-        return JSON.parse(cached);
-      }
+      if (cached) return JSON.parse(cached);
 
-      console.log("❌ POSTS Cache MISS");
-
-      // 🔹 Fetch from DB
-      const { rows } = await pool.query(`
-        SELECT * FROM posts
-        WHERE is_deleted = false
+      const { rows } = await pool.query(
+        `
+        SELECT *
+        FROM posts
+        WHERE is_deleted=false
         ORDER BY created_at DESC
-      `);
+        LIMIT 50
+        `,
+      );
 
-      const posts = rows.map((post) => ({
-        id: post.id,
-        title: post.title,
-        category: post.category,
-        description: post.description,
-        imageUrl: post.image_url,
-        location: post.location,
-        isDeleted: post.is_deleted,
-        createdAt: post.created_at,
-        updatedAt: post.updated_at,
-        user_id: post.user_id,
-      }));
+      const posts = rows.map(mapPost);
 
-      // 🔹 Store in Redis
-      try {
-        await redis.set(cacheKey, JSON.stringify(posts), "EX", CACHE_TTL);
-        console.log("📦 Cached posts list");
-      } catch (err) {
-        console.error("Redis error:", err);
-      }
+      await redis.set(cacheKey, JSON.stringify(posts), "EX", CACHE_TTL);
 
       return posts;
     },
 
-    // ✅ 3. Debug Cache
+    async notifications(_, { limit = 10, offset = 0 }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      const notifications = await notificationService.getUserNotifications(
+        context.user.id,
+        limit,
+        offset,
+      );
+
+      return notifications.map((n) => ({
+        id: n.id,
+        userId: n.user_id,
+        postId: n.post_id,
+        title: n.title,
+        message: n.message,
+        isRead: n.is_read,
+        createdAt: n.created_at,
+      }));
+    },
+
+    async notification(_, { id }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      const { rows } = await pool.query(
+        `
+SELECT *
+FROM notifications
+WHERE user_id=$1
+AND user_id = $2
+`,
+        [id, context.user.id],
+      );
+
+      const n = rows[0];
+      if (!n) return null;
+
+      return {
+        id: n.id,
+        userId: n.user_id,
+        postId: n.post_id,
+        title: n.title,
+        message: n.message,
+        isRead: n.is_read,
+        createdAt: n.created_at,
+      };
+    },
+
+    async mySubscriptions(_, __, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      return subscriptionService.getUserSubscriptions(context.user.id);
+    },
+
+    async unreadNotificationCount(_, __, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      return notificationService.getUnreadNotificationCount(context.user.id);
+    },
+
     async testPostCache(_, { postId }, context) {
-      if (!context.user) {
-        throw new Error("Unauthorized");
-      }
+      if (!context?.user) throw new Error("Unauthorized");
 
       const cacheKey = `post:${postId}`;
 
-      const ttl = await redis.ttl(cacheKey);
-      const data = await redis.get(cacheKey);
+      const cached = await redis.get(cacheKey);
 
       return {
         cacheKey,
-        ttl,
-        cachedData: data ? JSON.parse(data) : null,
+        ttl: await redis.ttl(cacheKey),
+        cachedData: cached ? JSON.parse(cached) : null,
       };
     },
   },
 
   Mutation: {
-    // ✅ 4. Create Post
     async createPost(
       _,
       { title, category, description, imageUrl, location },
       context,
     ) {
-      if (!context.user) {
-        throw new Error("Unauthorized");
+      if (!context?.user) throw new Error("Unauthorized");
+
+      if (!title || title.trim().length < 3) {
+        throw new Error("Invalid title");
       }
 
-      try {
-        const { rows } = await pool.query(
-          `INSERT INTO public.posts 
-           (title, category, description, image_url, location, user_id)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING *`,
-          [
-            title,
-            category,
-            description,
-            imageUrl || null,
-            location || null,
-            context.user.id,
-          ],
-        );
+      const { rows } = await pool.query(
+        `
+        INSERT INTO posts(
+          title,
+          category,
+          description,
+          image_url,
+          location,
+          user_id
+        )
+        VALUES($1,$2,$3,$4,$5,$6)
+        RETURNING *
+        `,
+        [
+          title,
+          category,
+          description,
+          imageUrl || null,
+          location || null,
+          context.user.id,
+        ],
+      );
 
-        const post = rows[0];
+      const post = mapPost(rows[0]);
 
-        const postData = {
-          id: post.id,
-          title: post.title,
-          category: post.category,
-          description: post.description,
-          imageUrl: post.image_url,
-          location: post.location,
-          isDeleted: post.is_deleted,
-          createdAt: post.created_at,
-          updatedAt: post.updated_at,
-          user_id: post.user_id,
-        };
+      // FIX: invalidate both list + single post cache
+      await Promise.all([
+        redis.del("posts:all:v1"),
+        redis.del(`post:${post.id}`),
+      ]);
 
-        const cacheKey = `post:${post.id}`;
+      await notificationService.sendCategoryNotifications(post);
 
-        // 🔹 Cache single post
-        await redis.set(cacheKey, JSON.stringify(postData), "EX", CACHE_TTL);
+      return post;
+    },
 
-        // 🔹 Invalidate list cache
-        await redis.del("posts:all");
+    async subscribeCategories(_, { categories }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
 
-        console.log("✅ Post created + cache updated");
-
-        return postData;
-      } catch (err) {
-        console.error("CreatePost Error:", err);
-        throw new Error("Failed to create post");
+      if (!Array.isArray(categories) || categories.length === 0) {
+        throw new Error("Select at least one category");
       }
+
+      return subscriptionService.subscribeCategories(
+        context.user.id,
+        categories,
+      );
+    },
+
+    async updateSubscriptions(_, { categories }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      return subscriptionService.updateSubscriptions(
+        context.user.id,
+        categories,
+      );
+    },
+
+    async unsubscribeCategory(_, { category }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      return subscriptionService.unsubscribeCategory(context.user.id, category);
+    },
+
+    async markNotificationRead(_, { notificationId }, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      return notificationService.markNotificationRead(
+        context.user.id,
+        notificationId,
+      );
+    },
+
+    async markAllNotificationsRead(_, __, context) {
+      if (!context?.user) throw new Error("Unauthorized");
+
+      await pool.query(
+        `
+        UPDATE notifications
+        SET is_read=true
+        WHERE user_id=$1
+        `,
+        [context.user.id],
+      );
+
+      await Promise.all([
+        redis.del(`notifications:${context.user.id}`),
+        redis.del(`notificationCount:${context.user.id}`),
+      ]);
+
+      return true;
     },
   },
 
-  // ✅🔥 MOST IMPORTANT FIX (OWNER RESOLVER)
   Post: {
     owner(parent) {
-      return parent.user_id ? { __typename: "User", id: parent.user_id } : null;
+      return {
+        __typename: "User",
+        id: parent.user_id,
+      };
+    },
+  },
+
+  Notification: {
+    post(parent) {
+      if (!parent.post_id) return null;
+
+      return {
+        __typename: "Post",
+        id: parent.post_id,
+      };
     },
   },
 };
+
+function mapPost(post = {}) {
+  return {
+    id: post.id,
+    title: post.title,
+    category: post.category,
+    description: post.description,
+    imageUrl: post.image_url,
+    location: post.location,
+    isDeleted: post.is_deleted,
+    createdAt: post.created_at,
+    updatedAt: post.updated_at,
+    user_id: post.user_id,
+  };
+}
