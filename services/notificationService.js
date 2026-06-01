@@ -55,9 +55,12 @@ export const notificationService = {
             `,
             [
               userId,
+
               post.id,
-              "New Category Post",
-              `New ${post.category} post added: ${post.title}`,
+
+              `${post.category} Update`,
+
+              `${post.title} was uploaded in ${post.category}`,
             ],
           );
 
