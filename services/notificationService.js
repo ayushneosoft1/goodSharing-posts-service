@@ -1,3 +1,6 @@
+import { getPushTokens } from "./userService.js";
+import { sendPushNotification } from "./pushNotificationService.js";
+
 import { pool } from "../db.js";
 import { redis } from "../redis.js";
 
@@ -5,9 +8,11 @@ const CACHE_TTL = 604800; // 7 days
 
 function toInt(value) {
   const n = Number(value);
+
   if (Number.isNaN(n)) {
     throw new Error("Invalid numeric value");
   }
+
   return n;
 }
 
@@ -16,7 +21,6 @@ async function clearNotificationCache(userId) {
 
   await Promise.all([
     ...(notificationKeys.length ? [redis.del(...notificationKeys)] : []),
-
     redis.del(`notificationCount:${userId}`),
   ]);
 }
@@ -24,6 +28,11 @@ async function clearNotificationCache(userId) {
 export const notificationService = {
   async sendCategoryNotifications(post) {
     try {
+      // ===== DEBUG LOGS =====
+      console.log("POST:", post);
+      console.log("POST CATEGORY:", post.category);
+      console.log("POST AUTHOR:", post.user_id);
+
       const { rows: subscribers } = await pool.query(
         `
         SELECT DISTINCT user_id
@@ -33,15 +42,43 @@ export const notificationService = {
         [post.category],
       );
 
-      if (!subscribers.length) return true;
+      // ===== DEBUG LOG =====
+      console.log("SUBSCRIBERS:", subscribers);
+
+      if (!subscribers.length) {
+        return true;
+      }
 
       const authorId = toInt(post.user_id);
 
       const validSubscribers = subscribers.filter(
-        (s) => toInt(s.user_id) !== authorId,
+        (subscriber) => toInt(subscriber.user_id) !== authorId,
       );
 
-      if (!validSubscribers.length) return true;
+      // ===== DEBUG LOG =====
+      console.log("VALID SUBSCRIBERS:", validSubscribers);
+
+      if (!validSubscribers.length) {
+        return true;
+      }
+
+      // All subscriber ids
+      const userIds = validSubscribers.map((subscriber) => subscriber.user_id);
+
+      // Single request to User Service
+      const pushTokens = await getPushTokens(userIds);
+      console.log("PUSH TOKENS:", pushTokens);
+
+      // Group tokens by user
+      const tokensByUser = new Map();
+
+      for (const token of pushTokens) {
+        if (!tokensByUser.has(token.userId)) {
+          tokensByUser.set(token.userId, []);
+        }
+
+        tokensByUser.get(token.userId).push(token.pushToken);
+      }
 
       await Promise.all(
         validSubscribers.map(async (subscriber) => {
@@ -50,18 +87,39 @@ export const notificationService = {
           await pool.query(
             `
             INSERT INTO notifications
-              (user_id, post_id, title, message)
+            (
+              user_id,
+              post_id,
+              title,
+              message
+            )
             VALUES ($1, $2, $3, $4)
             `,
             [
               userId,
-
               post.id,
-
               `${post.category} Update`,
-
               `${post.title} was uploaded in ${post.category}`,
             ],
+          );
+
+          const userTokens = tokensByUser.get(userId) || [];
+
+          console.log("Sending notification", {
+            userId,
+            postId: post.id,
+            userTokens,
+          });
+
+          await Promise.all(
+            userTokens.map((pushToken) =>
+              sendPushNotification(
+                pushToken,
+                `${post.category} Update`,
+                `${post.title} was uploaded in ${post.category}`,
+                post.id,
+              ),
+            ),
           );
 
           await clearNotificationCache(userId);
@@ -78,6 +136,7 @@ export const notificationService = {
   async getUserNotifications(userId, limit = 10, offset = 0) {
     try {
       const id = toInt(userId);
+
       const cacheKey = `notifications:${id}:${limit}:${offset}`;
 
       const cached = await redis.get(cacheKey);
@@ -113,6 +172,7 @@ export const notificationService = {
   async getUnreadNotificationCount(userId) {
     try {
       const id = toInt(userId);
+
       const cacheKey = `notificationCount:${id}`;
 
       const cached = await redis.get(cacheKey);
@@ -128,7 +188,8 @@ export const notificationService = {
         `
         SELECT COUNT(*)::int AS count
         FROM notifications
-        WHERE user_id=$1 AND is_read=false
+        WHERE user_id=$1
+        AND is_read=false
         `,
         [id],
       );
@@ -147,11 +208,15 @@ export const notificationService = {
   async markNotificationRead(userId, notificationId) {
     try {
       const uid = toInt(userId);
+
       const nid = toInt(notificationId);
 
       const { rows } = await pool.query(
         `
-        SELECT id, user_id, is_read
+        SELECT
+          id,
+          user_id,
+          is_read
         FROM notifications
         WHERE id=$1
         `,
@@ -186,6 +251,7 @@ export const notificationService = {
       return true;
     } catch (err) {
       console.error("Mark Notification Error:", err);
+
       throw new Error(err.message || "Failed to mark notification");
     }
   },
