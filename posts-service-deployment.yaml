@@ -25,10 +25,21 @@ spec:
                 secretKeyRef:
                   name: posts-db-secret
                   key: DB_URL
+
+            - name: REDIS_HOST
+              value: redis
+
+            - name: REDIS_PORT
+              value: "6379"
+
+            - name: USER_SERVICE_URL
+              value: http://user-service.services.svc.cluster.local:4001/graphql
+
           volumeMounts:
             - name: db-ca-cert
               mountPath: /app/certs
               readOnly: true
+
       volumes:
         - name: db-ca-cert
           secret:
