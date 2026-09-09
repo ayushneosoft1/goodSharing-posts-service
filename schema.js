@@ -10,8 +10,6 @@ export const typeDefs = gql`
 
     notification(id: ID!): Notification
 
-    notifications(limit: Int = 10, offset: Int = 0): [Notification!]!
-
     mySubscriptions: [PostCategory!]!
 
     unreadNotificationCount: Int!
@@ -31,8 +29,6 @@ export const typeDefs = gql`
     subscribeCategories(categories: [PostCategory!]!): Boolean!
 
     updateSubscriptions(categories: [PostCategory!]!): Boolean!
-
-    unsubscribeCategory(category: PostCategory!): Boolean!
 
     markNotificationRead(notificationId: ID!): Boolean!
 
