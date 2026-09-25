@@ -29,9 +29,6 @@ export const notificationService = {
   async sendCategoryNotifications(post) {
     try {
       // ===== DEBUG LOGS =====
-      console.log("POST:", post);
-      console.log("POST CATEGORY:", post.category);
-      console.log("POST AUTHOR:", post.user_id);
 
       const { rows: subscribers } = await pool.query(
         `
@@ -43,7 +40,6 @@ export const notificationService = {
       );
 
       // ===== DEBUG LOG =====
-      console.log("SUBSCRIBERS:", subscribers);
 
       if (!subscribers.length) {
         return true;
@@ -56,7 +52,6 @@ export const notificationService = {
       );
 
       // ===== DEBUG LOG =====
-      console.log("VALID SUBSCRIBERS:", validSubscribers);
 
       if (!validSubscribers.length) {
         return true;
@@ -67,7 +62,6 @@ export const notificationService = {
 
       // Single request to User Service
       const pushTokens = await getPushTokens(userIds);
-      console.log("PUSH TOKENS:", pushTokens);
 
       // Group tokens by user
       const tokensByUser = new Map();
@@ -104,12 +98,6 @@ export const notificationService = {
           );
 
           const userTokens = tokensByUser.get(userId) || [];
-
-          console.log("Sending notification", {
-            userId,
-            postId: post.id,
-            userTokens,
-          });
 
           await Promise.all(
             userTokens.map((pushToken) =>

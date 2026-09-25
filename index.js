@@ -10,7 +10,6 @@ import { runStartupMigrations } from "./db.js";
 
 dotenv.config();
 
-console.log("JWT_SECRET =", process.env.JWT_SECRET);
 
 const server = new ApolloServer({
   schema: buildSubgraphSchema([{ typeDefs, resolvers }]),
@@ -29,7 +28,6 @@ async function startServer() {
       },
 
       context: async ({ req }) => {
-        console.log("HEADERS:", req.headers);
 
         // ----------------------------
         // Case 1: Request comes from Gateway
@@ -40,7 +38,6 @@ async function startServer() {
           try {
             const user = JSON.parse(xUser);
 
-            console.log("Authenticated via Gateway:", user);
 
             return { user };
           } catch (err) {
@@ -68,7 +65,6 @@ async function startServer() {
 
           const user = jwt.verify(token, process.env.JWT_SECRET);
 
-          console.log("Authenticated via JWT:", user);
 
           return {
             user,
