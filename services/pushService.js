@@ -15,7 +15,6 @@ export async function sendPushNotifications(messages) {
 
     const result = await response.json();
 
-    console.log("Expo Push Response:", result);
 
     return result;
   } catch (err) {

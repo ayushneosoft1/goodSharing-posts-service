@@ -1,12 +1,6 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
 import GraphQLJSON from "graphql-type-json";
-import { notificationService } from "./services/notificationService.js";
-import { sendPushNotification } from "./utils/pushNotification.js";
-import { request, gql } from "graphql-request";
-
-const USER_SERVICE_URL =
-  "http://user-service.services.svc.cluster.local:4001/graphql";
 
 const CACHE_TTL = 604800;
 
@@ -43,7 +37,6 @@ export const resolvers = {
     async posts(_, __, context) {
       console.log("==================================");
       console.log("LOCAL POSTS RESOLVER HIT");
-      console.log("Authenticated User:", context.user);
       console.log("==================================");
 
       if (!context?.user) throw new Error("Unauthorized");
@@ -127,73 +120,6 @@ export const resolvers = {
         redis.del("posts:all:v1"),
         redis.del(`post:${post.id}`),
       ]);
-
-      // Existing legacy notification/category notification logic.
-      // Do not expand or reconnect this flow as part of M3.
-      await notificationService.sendCategoryNotifications(post);
-
-      // ======================
-      // PUSH NOTIFICATION
-      // ======================
-
-      try {
-        const GET_PUSH_TOKENS = gql`
-          query GetPushTokens($userIds: [ID!]!) {
-            getPushTokens(userIds: $userIds) {
-              userId
-              pushToken
-            }
-          }
-        `;
-
-        // Get target users from legacy notifications table
-        // (excluding post creator).
-        const { rows: userRows } = await pool.query(
-          `
-          SELECT DISTINCT user_id
-          FROM notifications
-          WHERE user_id != $1
-          `,
-          [context.user.id],
-        );
-
-        const userIds = userRows.map((u) => String(u.user_id));
-
-        console.log("TARGET USER IDS =>", userIds);
-
-        if (userIds.length === 0) {
-          console.log("NO TARGET USERS FOR PUSH");
-        } else {
-          // Fetch Expo push tokens from user-service.
-          const data = await request(USER_SERVICE_URL, GET_PUSH_TOKENS, {
-            userIds,
-          });
-
-          const users = data.getPushTokens || [];
-
-          console.log("PUSH USERS COUNT =>", users.length);
-          console.log("PUSH USERS =>", users);
-
-          for (const user of users) {
-            try {
-              console.log("Sending push to =>", user.pushToken);
-
-              const result = await sendPushNotification(
-                user.pushToken,
-                "New Post Added",
-                post.title,
-                post.id,
-              );
-
-              console.log("PUSH RESULT =>", result);
-            } catch (err) {
-              console.error("Push send failed for user", user.userId, err);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch push tokens from user-service:", err);
-      }
 
       return post;
     },

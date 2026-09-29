@@ -5,7 +5,6 @@ const expo = new Expo();
 export async function sendPushNotification(token, title, body, postId) {
   try {
     if (!Expo.isExpoPushToken(token)) {
-      console.log("Invalid Expo push token:", token);
       return;
     }
 
@@ -23,7 +22,6 @@ export async function sendPushNotification(token, title, body, postId) {
 
     const tickets = await expo.sendPushNotificationsAsync(messages);
 
-    console.log("Expo Push Response:", tickets);
 
     return tickets;
   } catch (err) {
