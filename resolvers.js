@@ -1,6 +1,7 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
 import GraphQLJSON from "graphql-type-json";
+import { notificationEventService } from "./services/notificationEventService.js";
 
 const CACHE_TTL = 604800;
 
@@ -120,6 +121,8 @@ export const resolvers = {
         redis.del("posts:all:v1"),
         redis.del(`post:${post.id}`),
       ]);
+
+      await notificationEventService.notifyPostCreated(post, context.user.id);
 
       return post;
     },
