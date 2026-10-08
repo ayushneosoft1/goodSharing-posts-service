@@ -6,7 +6,8 @@ console.log("Redis port:", process.env.REDIS_PORT);
 export const redis = new Redis({
   host: process.env.REDIS_HOST || "127.0.0.1",
   port: process.env.REDIS_PORT || 6379,
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: 1,
+  enableOfflineQueue: false,
   enableReadyCheck: true,
   connectTimeout: 10000,
 });

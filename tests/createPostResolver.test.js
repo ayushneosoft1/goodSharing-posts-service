@@ -164,5 +164,13 @@ test("failed post creation does not trigger PostCreated notification", async () 
 
 
 after(async () => {
-  await redis.quit();
+  try {
+    if (redis.status !== "wait" && redis.status !== "end") {
+      await redis.quit();
+    } else {
+      redis.disconnect();
+    }
+  } catch {
+    redis.disconnect();
+  }
 });
