@@ -20,9 +20,6 @@ redis.on("error", (err) => {
   console.error(" Dragonfly error:", err);
 });
 
-redis.on("connect", async () => {
+redis.on("connect", () => {
   console.log("Connected to Redis (post service)");
-
-  const pong = await redis.ping();
-  console.log("Redis PING:", pong);
 });

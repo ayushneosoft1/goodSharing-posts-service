@@ -17,7 +17,7 @@ export const pool = new Pool({
 });
 
 export async function runStartupMigrations() {
-  console.log("🚀 Starting Postgres startup migrations...");
+  console.log("Starting Postgres startup migrations...");
   const client = await pool.connect();
 
   try {
@@ -55,9 +55,9 @@ export async function runStartupMigrations() {
       );
     `);
 
-    console.log("✅ Postgres startup migration completed");
+    console.log("Postgres startup migration completed");
   } catch (err) {
-    console.error("⛔ Postgres startup migration failed", err);
+    console.error("Postgres startup migration failed", err);
     throw err;
   } finally {
     client.release();
@@ -65,5 +65,5 @@ export async function runStartupMigrations() {
 }
 
 pool.on("connect", () => {
-  console.log("✅ Postgres connected with trusted CA");
+  console.log("Postgres connected with trusted CA");
 });
