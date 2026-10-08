@@ -116,11 +116,18 @@ export const resolvers = {
 
       const post = mapPost(rows[0]);
 
-      // Invalidate both list + single post cache
-      await Promise.all([
-        redis.del("posts:all:v1"),
-        redis.del(`post:${post.id}`),
-      ]);
+      // Invalidate cache without blocking post notifications if Redis is unavailable
+      try {
+        await Promise.all([
+          redis.del("posts:all:v1"),
+          redis.del(`post:${post.id}`),
+        ]);
+      } catch (error) {
+        console.error("POST_CACHE_INVALIDATION_FAILED", {
+          postId: String(post.id),
+          message: error?.message,
+        });
+      }
 
       await notificationEventService.notifyPostCreated(post, context.user.id);
 

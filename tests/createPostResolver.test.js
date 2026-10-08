@@ -68,6 +68,62 @@ test("createPost saves the post and triggers PostCreated notification", async ()
   }
 });
 
+
+test("Redis cache invalidation failure does not block PostCreated notification", async () => {
+  const originalNotify = notificationEventService.notifyPostCreated;
+  let notificationCalled = false;
+
+  mock.method(pool, "query", async () => ({
+    rows: [
+      {
+        id: "502",
+        title: "Redis Failure Book",
+        category: "BOOK",
+        description: "Test description",
+        image_url: null,
+        location: "Test Location",
+        is_deleted: false,
+        created_at: "2026-10-05T11:00:00.000Z",
+        updated_at: "2026-10-05T11:00:00.000Z",
+        user_id: "162",
+      },
+    ],
+  }));
+
+  mock.method(redis, "del", async () => {
+    throw new Error("Redis unavailable");
+  });
+
+  notificationEventService.notifyPostCreated = async (post, authorId) => {
+    notificationCalled = true;
+    assert.equal(post.id, "502");
+    assert.equal(authorId, "162");
+    return { delivered: true, eventId: "redis-failure-test-event" };
+  };
+
+  try {
+    const result = await resolvers.Mutation.createPost(
+      null,
+      {
+        title: "Redis Failure Book",
+        category: "BOOK",
+        description: "Test description",
+        imageUrl: null,
+        location: "Test Location",
+      },
+      {
+        user: { id: "162" },
+      },
+    );
+
+    assert.equal(result.id, "502");
+    assert.equal(notificationCalled, true);
+  } finally {
+    notificationEventService.notifyPostCreated = originalNotify;
+    mock.restoreAll();
+  }
+});
+
 test("failed post creation does not trigger PostCreated notification", async () => {
   const originalNotify = notificationEventService.notifyPostCreated;
   let notificationCalled = false;
