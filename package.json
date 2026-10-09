@@ -2,7 +2,8 @@
   "name": "goodsharing-posts-service",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@apollo/server": "^4.10.0",
