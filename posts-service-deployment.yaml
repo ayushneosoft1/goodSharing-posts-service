@@ -32,8 +32,14 @@ spec:
             - name: REDIS_PORT
               value: "6379"
 
-            - name: USER_SERVICE_URL
-              value: http://user-service.services.svc.cluster.local:4001/graphql
+            - name: NOTIFICATION_SERVICE_URL
+              value: http://notification-service.services.svc.cluster.local:4003
+
+            - name: INTERNAL_EVENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-secret
+                  key: INTERNAL_EVENT_AUTH_TOKEN
 
           volumeMounts:
             - name: db-ca-cert
