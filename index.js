@@ -6,7 +6,8 @@ import dotenv from "dotenv";
 
 import { typeDefs } from "./schema.js";
 import { resolvers } from "./resolvers.js";
-import { runStartupMigrations } from "./db.js";
+import { pool, runStartupMigrations } from "./db.js";
+import { startOutboxPublisher } from "./services/outboxPublisher.js";
 
 dotenv.config();
 
@@ -80,6 +81,19 @@ async function startServer() {
     });
 
     console.log("Posts Service running at http://0.0.0.0:4002/graphql");
+
+    const { rows } = await pool.query(
+      "SELECT to_regclass('public.outbox_events') AS table_name",
+    );
+
+    if (rows[0]?.table_name) {
+      startOutboxPublisher();
+      console.log("Outbox Publisher started");
+    } else {
+      console.warn(
+        "Outbox Publisher not started: public.outbox_events table is missing",
+      );
+    }
   } catch (err) {
     console.error("Failed to start Posts Service:", err);
     process.exit(1);
