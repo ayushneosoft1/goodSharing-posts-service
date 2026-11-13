@@ -1,7 +1,7 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
 import GraphQLJSON from "graphql-type-json";
-import { notificationEventService } from "./services/notificationEventService.js";
+import { buildPostCreatedEvent } from "./services/notificationEventService.js";
 
 const CACHE_TTL = 604800;
 
@@ -91,30 +91,64 @@ export const resolvers = {
         throw new Error("Invalid title");
       }
 
-      const { rows } = await pool.query(
-        `
-        INSERT INTO posts(
-          title,
-          category,
-          description,
-          image_url,
-          location,
-          user_id
-        )
-        VALUES($1,$2,$3,$4,$5,$6)
-        RETURNING *
-        `,
-        [
-          title,
-          category,
-          description,
-          imageUrl || null,
-          location || null,
-          context.user.id,
-        ],
-      );
+      const client = await pool.connect();
+      let post;
 
-      const post = mapPost(rows[0]);
+      try {
+        await client.query("BEGIN");
+
+        const { rows } = await client.query(
+          `
+          INSERT INTO posts(
+            title,
+            category,
+            description,
+            image_url,
+            location,
+            user_id
+          )
+          VALUES($1,$2,$3,$4,$5,$6)
+          RETURNING *
+          `,
+          [
+            title,
+            category,
+            description,
+            imageUrl || null,
+            location || null,
+            context.user.id,
+          ],
+        );
+
+        post = mapPost(rows[0]);
+
+        const event = buildPostCreatedEvent(post, context.user.id);
+
+        await client.query(
+          `
+          INSERT INTO public.outbox_events (
+            event_id,
+            event_type,
+            aggregate_id,
+            payload
+          )
+          VALUES ($1, $2, $3, $4::jsonb)
+          `,
+          [
+            event.eventId,
+            event.eventType,
+            post.id,
+            JSON.stringify(event),
+          ],
+        );
+
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
 
       // Invalidate cache without blocking post notifications if Redis is unavailable
       try {
@@ -128,8 +162,6 @@ export const resolvers = {
           message: error?.message,
         });
       }
-
-      await notificationEventService.notifyPostCreated(post, context.user.id);
 
       return post;
     },

@@ -12,29 +12,15 @@ function getTimeoutMs() {
   return Number.isFinite(value) && value > 0 ? value : 5000;
 }
 
-export async function notifyPostCreated(post, authorId) {
-  const baseUrl = process.env.NOTIFICATION_SERVICE_URL;
-  const authToken = process.env.INTERNAL_EVENT_AUTH_TOKEN;
-
-  if (!baseUrl || !authToken) {
-    console.error("POST_CREATED_NOTIFICATION_CONFIG_MISSING", {
-      postId: String(post.id),
-    });
-    return { delivered: false };
-  }
-
+export function buildPostCreatedEvent(post, authorId, eventId = crypto.randomUUID()) {
   const categoryId = CATEGORY_IDS[post.category];
 
   if (!categoryId) {
-    console.error("POST_CREATED_NOTIFICATION_INVALID_CATEGORY", {
-      postId: String(post.id),
-      category: post.category,
-    });
-    return { delivered: false };
+    throw new Error("Invalid PostCreated category");
   }
 
-  const event = {
-    eventId: crypto.randomUUID(),
+  return {
+    eventId,
     eventType: "PostCreated",
     postId: String(post.id),
     authorId: String(authorId),
@@ -42,6 +28,15 @@ export async function notifyPostCreated(post, authorId) {
     title: String(post.title),
     createdAt: new Date(post.createdAt).toISOString(),
   };
+}
+
+export async function sendPostCreatedEvent(event) {
+  const baseUrl = process.env.NOTIFICATION_SERVICE_URL;
+  const authToken = process.env.INTERNAL_EVENT_AUTH_TOKEN;
+
+  if (!baseUrl || !authToken) {
+    throw new Error("PostCreated notification configuration is missing");
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), getTimeoutMs());
@@ -61,25 +56,11 @@ export async function notifyPostCreated(post, authorId) {
     );
 
     if (!response.ok) {
-      console.error("POST_CREATED_NOTIFICATION_FAILED", {
-        eventId: event.eventId,
-        postId: event.postId,
-        status: response.status,
-      });
-      return { delivered: false, eventId: event.eventId };
+      throw new Error(`Notification Service returned HTTP ${response.status}`);
     }
 
     return { delivered: true, eventId: event.eventId };
-  } catch (error) {
-    console.error("POST_CREATED_NOTIFICATION_FAILED", {
-      eventId: event.eventId,
-      postId: event.postId,
-      error: error?.name === "AbortError" ? "timeout" : error?.message,
-    });
-    return { delivered: false, eventId: event.eventId };
   } finally {
     clearTimeout(timeout);
   }
 }
-
-export const notificationEventService = { notifyPostCreated };

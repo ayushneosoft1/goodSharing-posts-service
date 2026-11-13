@@ -3,165 +3,176 @@ import assert from "node:assert/strict";
 
 import { pool } from "../db.js";
 import { redis } from "../redis.js";
-import { notificationEventService } from "../services/notificationEventService.js";
 import { resolvers } from "../resolvers.js";
 
-test("createPost saves the post and triggers PostCreated notification", async () => {
-  const originalQuery = pool.query;
-  const originalDel = redis.del;
-  const originalNotify = notificationEventService.notifyPostCreated;
+const postRow = (id = "501") => ({
+  id,
+  title: "Test Book",
+  category: "BOOK",
+  description: "Test description",
+  image_url: null,
+  location: "Test Location",
+  is_deleted: false,
+  created_at: "2026-10-05T10:00:00.000Z",
+  updated_at: "2026-10-05T10:00:00.000Z",
+  user_id: "162",
+});
 
-  let notificationArgs = null;
+function createClient({ postInsertError, outboxInsertError } = {}) {
+  const queries = [];
+  let released = false;
 
-  mock.method(pool, "query", async () => ({
-    rows: [
-      {
-        id: "501",
-        title: "Test Book",
-        category: "BOOK",
-        description: "Test description",
-        image_url: null,
-        location: "Test Location",
-        is_deleted: false,
-        created_at: "2026-10-05T10:00:00.000Z",
-        updated_at: "2026-10-05T10:00:00.000Z",
-        user_id: "162",
-      },
-    ],
-  }));
+  const client = {
+    async query(sql, params = []) {
+      const normalized = sql.trim().replace(/\s+/g, " ").toUpperCase();
+      queries.push({ sql: normalized, params });
 
-  mock.method(redis, "del", async () => 1);
+      if (normalized === "BEGIN" || normalized === "COMMIT" ||
+          normalized === "ROLLBACK") {
+        return { rows: [], rowCount: 0 };
+      }
 
-  notificationEventService.notifyPostCreated = async (post, authorId) => {
-    notificationArgs = { post, authorId };
-    return { delivered: true, eventId: "test-event-id" };
+      if (normalized.includes("INSERT INTO POSTS")) {
+        if (postInsertError) throw postInsertError;
+        return { rows: [postRow()], rowCount: 1 };
+      }
+
+      if (normalized.includes("INSERT INTO PUBLIC.OUTBOX_EVENTS")) {
+        if (outboxInsertError) throw outboxInsertError;
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected SQL query: ${normalized}`);
+    },
+    release() {
+      released = true;
+    },
   };
 
+  return {
+    client,
+    queries,
+    isReleased: () => released,
+  };
+}
+
+async function createPost() {
+  return resolvers.Mutation.createPost(
+    null,
+    {
+      title: "Test Book",
+      category: "BOOK",
+      description: "Test description",
+      imageUrl: null,
+      location: "Test Location",
+    },
+    {
+      user: { id: "162" },
+    },
+  );
+}
+
+test("createPost saves post and outbox event in one transaction", async () => {
+  const fake = createClient();
+
+  mock.method(pool, "connect", async () => fake.client);
+  mock.method(redis, "del", async () => 1);
+
   try {
-    const result = await resolvers.Mutation.createPost(
-      null,
-      {
-        title: "Test Book",
-        category: "BOOK",
-        description: "Test description",
-        imageUrl: null,
-        location: "Test Location",
-      },
-      {
-        user: { id: "162" },
-      },
-    );
+    const result = await createPost();
 
     assert.equal(result.id, "501");
     assert.equal(result.title, "Test Book");
     assert.equal(result.category, "BOOK");
 
-    assert.ok(notificationArgs);
-    assert.equal(notificationArgs.authorId, "162");
-    assert.equal(notificationArgs.post.id, "501");
-    assert.equal(notificationArgs.post.category, "BOOK");
+    assert.equal(fake.queries[0].sql, "BEGIN");
+    assert.ok(fake.queries[1].sql.includes("INSERT INTO POSTS"));
+    assert.ok(fake.queries[2].sql.includes("INSERT INTO PUBLIC.OUTBOX_EVENTS"));
+    assert.equal(fake.queries[3].sql, "COMMIT");
+
+    const outboxParams = fake.queries[2].params;
+    const payload = JSON.parse(outboxParams[3]);
+
+    assert.equal(outboxParams[0], payload.eventId);
+    assert.equal(outboxParams[1], "PostCreated");
+    assert.equal(outboxParams[2], "501");
+    assert.equal(payload.eventType, "PostCreated");
+    assert.equal(payload.postId, "501");
+    assert.equal(payload.authorId, "162");
+    assert.equal(payload.categoryId, "1");
+    assert.equal(payload.title, "Test Book");
+    assert.equal(payload.createdAt, "2026-10-05T10:00:00.000Z");
+
+    assert.equal(fake.isReleased(), true);
   } finally {
-    notificationEventService.notifyPostCreated = originalNotify;
     mock.restoreAll();
-    void originalQuery;
-    void originalDel;
   }
 });
 
+test("Redis cache invalidation failure does not fail post creation", async () => {
+  const fake = createClient();
 
-test("Redis cache invalidation failure does not block PostCreated notification", async () => {
-  const originalNotify = notificationEventService.notifyPostCreated;
-  let notificationCalled = false;
-
-  mock.method(pool, "query", async () => ({
-    rows: [
-      {
-        id: "502",
-        title: "Redis Failure Book",
-        category: "BOOK",
-        description: "Test description",
-        image_url: null,
-        location: "Test Location",
-        is_deleted: false,
-        created_at: "2026-10-05T11:00:00.000Z",
-        updated_at: "2026-10-05T11:00:00.000Z",
-        user_id: "162",
-      },
-    ],
-  }));
-
+  mock.method(pool, "connect", async () => fake.client);
   mock.method(redis, "del", async () => {
     throw new Error("Redis unavailable");
   });
 
-  notificationEventService.notifyPostCreated = async (post, authorId) => {
-    notificationCalled = true;
-    assert.equal(post.id, "502");
-    assert.equal(authorId, "162");
-    return { delivered: true, eventId: "redis-failure-test-event" };
-  };
-
   try {
-    const result = await resolvers.Mutation.createPost(
-      null,
-      {
-        title: "Redis Failure Book",
-        category: "BOOK",
-        description: "Test description",
-        imageUrl: null,
-        location: "Test Location",
-      },
-      {
-        user: { id: "162" },
-      },
-    );
+    const result = await createPost();
 
-    assert.equal(result.id, "502");
-    assert.equal(notificationCalled, true);
+    assert.equal(result.id, "501");
+    assert.equal(fake.queries.at(-1).sql, "COMMIT");
+    assert.equal(fake.isReleased(), true);
   } finally {
-    notificationEventService.notifyPostCreated = originalNotify;
     mock.restoreAll();
   }
 });
 
-test("failed post creation does not trigger PostCreated notification", async () => {
-  const originalNotify = notificationEventService.notifyPostCreated;
-  let notificationCalled = false;
-
-  mock.method(pool, "query", async () => {
-    throw new Error("database insert failed");
+test("failed post insert rolls back and does not insert an outbox event", async () => {
+  const fake = createClient({
+    postInsertError: new Error("database insert failed"),
   });
 
-  notificationEventService.notifyPostCreated = async () => {
-    notificationCalled = true;
-    return { delivered: true };
-  };
+  mock.method(pool, "connect", async () => fake.client);
 
   try {
-    await assert.rejects(
-      resolvers.Mutation.createPost(
-        null,
-        {
-          title: "Failed Book",
-          category: "BOOK",
-          description: "Test description",
-          imageUrl: null,
-          location: "Test Location",
-        },
-        {
-          user: { id: "162" },
-        },
-      ),
-      /database insert failed/,
-    );
+    await assert.rejects(createPost(), /database insert failed/);
 
-    assert.equal(notificationCalled, false);
+    assert.equal(fake.queries[0].sql, "BEGIN");
+    assert.ok(fake.queries.some((query) => query.sql === "ROLLBACK"));
+    assert.equal(
+      fake.queries.some((query) =>
+        query.sql.includes("INSERT INTO PUBLIC.OUTBOX_EVENTS"),
+      ),
+      false,
+    );
+    assert.equal(fake.isReleased(), true);
   } finally {
-    notificationEventService.notifyPostCreated = originalNotify;
     mock.restoreAll();
   }
 });
 
+test("failed outbox insert rolls back the post transaction", async () => {
+  const fake = createClient({
+    outboxInsertError: new Error("outbox insert failed"),
+  });
+
+  mock.method(pool, "connect", async () => fake.client);
+
+  try {
+    await assert.rejects(createPost(), /outbox insert failed/);
+
+    assert.ok(fake.queries.some((query) => query.sql.includes("INSERT INTO POSTS")));
+    assert.ok(fake.queries.some((query) =>
+      query.sql.includes("INSERT INTO PUBLIC.OUTBOX_EVENTS"),
+    ));
+    assert.ok(fake.queries.some((query) => query.sql === "ROLLBACK"));
+    assert.equal(fake.queries.some((query) => query.sql === "COMMIT"), false);
+    assert.equal(fake.isReleased(), true);
+  } finally {
+    mock.restoreAll();
+  }
+});
 
 after(async () => {
   try {
