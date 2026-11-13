@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Runtime certificates (provided through Kubernetes Secret)
+certs/
+*.pem
+*.crt
+*.key
+
+# Build and test output
+coverage/
+dist/
+build/
+.cache/
+.tmp/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local files
+*.swp
